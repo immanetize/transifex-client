@@ -1,3 +1,4 @@
+#!/bin/bash -x`
 # bash completion for the Transifex command line client, tx
 #
 # Copyright (C) 2013 Pete Travis <me@petetravis.com>
@@ -35,19 +36,32 @@ __tx_files ()
   echo $(compgen -W "$FILES" -- $cur)
 }
 
+__project_slug_fetch () {
+  PROJECT_SLUG=$(sed -ne 's/\[\(.*\)\..*\]/\1/p' $TXCONFIG|sort -u)
+  echo $PROJECT_SLUG
+}
+
+__org_hub_url () {
+  # TODO: check for organization hub url, use default if not found
+  return 0;
+}
+
 __lang_opt_check () {
   # PROJECT_LANGS is turning project-specific language suggestions OFF for now.
+  # TODO: add switch in ~/.transifexrc
   PROJECT_LANGS=
+  TXCONFIG=$(__tx_dir) || return 1
+  PROJECT_SLUG=$(__project_slug_fetch)
+  TXTMPDIR="/run/user/$(id -u)/tx" 
+  if [[ -d "$TXTMPDIR" ]]; then
+    rm -rf $TXTMPDIR
+  fi
+  mkdir $TXTMPDIR
   TX_GLOBAL_CONFIG="${HOME}/.transifexrc"
   TX_USER=$(sed -ne 's/username = \(.*\)$/\1/p' $TX_GLOBAL_CONFIG)
   TX_PASS=$(sed -ne 's/password = \(.*\)$/\1/p' $TX_GLOBAL_CONFIG)
   TXCONFIG=$(__tx_dir) || return 1
-  PROJECT_SLUG=$(sed -ne 's/\[\(.*\)\..*\]/\1/p' $TXCONFIG|sort -u)
-  TXTMPDIR="/run/user/$(id -u)/tx" 
-  if [[ ! -d "$TXTMPDIR" ]]; then
-    mkdir $TXTMPDIR
-  fi
-  if [[ -z "$PROJECT_LANGS" && -z "$TX_GLOBAL_CONFIG" && -z "$TX_USER" && -z "$TX_PASS" ]]; then
+  if [[ "$PROJECT_LANGS" == "ONLINE" && -z "$TX_GLOBAL_CONFIG" && -z "$TX_USER" && -z "$TX_PASS" ]]; then
     LANGFILE="${TXTMPDIR}/tx.${PROJECT_SLUG}.langs"
     CURLARG="-L --user "${TX_USER}:${TX_PASS}" https://www.transifex.com/api/2/project/${PROJECT_SLUG}/languages/"
   else
@@ -58,11 +72,12 @@ __lang_opt_check () {
     echo -e "\nChecking supported languages. This only happens once per login session." 1>&2
     curl -i -X GET $CURLARG | sed -ne 's/"code": "\(.*\)",/\1/p' > $LANGFILE ||\
       { 
-        echo -e "\nNetwork connection needed to complete suggestions for supported languages" 1>&2
+        echo -e "\nCannot find supported languages for project, are you online?" 1>&2
         return 1
       }
   fi
   echo $(compgen -W "$(cat $LANGFILE)" -- $cur)
+
 }
 
 __resource_opt_check () {
@@ -91,83 +106,8 @@ __set_types () {
   echo "$(compgen -W "$TYPES" -- $cur)"
 }
 
-__iterate_args () {
-  WYRD="${COMP_WORDS[COMP_CWORD-1]}"
-  INPUT=$@
-  for MATCH in "$INPUT"; do
-    if [[ "$MATCH" == "$WYRD" ]]; then
-      case $WYRD in
-        -l|--language)
-          echo "$(__lang_opt_check)" || return 1
-          return 0;
-          ;;
-        --mode)
-          echo "$(__mode_opt_check)" || return 1
-          return 0;
-          ;;
-        -r|--resource)
-          echo "$(__resource_opt_check)" || return 1
-          return 0
-          ;;
-        -t|--translation|--type)
-          if [[ "${COMP_WORDS[1]}" == "set" ]]; then
-            echo "$(__set_types)"
-          fi
-          ;;
-        -f)
-          if [[ "${COMP_WORDS[1]}" == "set" ]]; then
-            echo "$(__tx_files)" || return 1
-          fi
-
-      esac
-    fi
-  done
-  echo "$(compgen -W "${INPUT[@]}" -- $cur)"
- }
-
-__tx_action_words () {
- action="${COMP_WORDS[1]}"
- case "$action" in
-  test)
-    #COMPREPLY=($(compgen -W "foo bar" -- $cur))
-    CURRENT_ACTIONS="foo bar fee"
-    ;;
-  help|-h) 
-    COMPREPLY=($(compgen -W "$ACTIONS" -- $cur))
-    return 0
-    ;;
-  delete)
-    #COMPREPLY=($(compgen -W "$DELETE_OPTIONS" -- $cur))
-    CURRENT_OPTIONS=$DELETE_OPTIONS
-    ;;
-  init)
-    #COMPREPLY=($(compgen -W "$INIT_OPTIONS" -- $cur))
-    CURRENT_OPTIONS=$INIT_OPTIONS
-  ;;
-  pull)
-    #COMPREPLY=($(compgen -W "$PULL_OPTIONS" -- $cur))
-    CURRENT_OPTIONS=$PULL_OPTIONS
-    ;;
-  push)
-    #COMPREPLY=($(compgen -W "$PUSH_OPTIONS" -- $cur))
-    CURRENT_OPTIONS=$PUSH_OPTIONS
-    ;;
-  set)
-    #COMPREPLY=($(compgen -W "$SET_OPTIONS" -- $cur))
-    for MATCH in ${COMP_WORDS[@]}; do
-      if [[ "$MATCH" == "--auto-local" ]]; then
-        CURRENT_OPTIONS=$SET_AUTOLOCAL_OPTIONS
-      elif [[ "$MATCH" == "--auto-remote" ]]; then
-        CURRENT_OPTIONS=$SET_AUTOREMOTE_OPTIONS
-      else
-        CURRENT_OPTIONS=$SET_OPTIONS
-      fi
-    done
-    ;;
-  esac
-    # this logic needs to be better. Don't suggest short form again if long form has been used, etc.
-    #
-  REMOVE_OPTIONS=()
+__trim_args () {
+   REMOVE_OPTIONS=()
     for USED_OPTIONS in ${COMP_WORDS[@]}; do
       REMOVE_OPTIONS+=($USED_OPTIONS)
       case $USED_OPTIONS in
@@ -202,6 +142,97 @@ __tx_action_words () {
           REMOVE_OPTIONS+=("-a")
           ;;
       esac
+    done
+    REMOVE_OPTIONS+=(${COMP_WORDS[COMP_CWORD-1]})
+  echo ${REMOVE_OPTIONS[@]}
+}
+
+__iterate_args () {
+  WYRD="${COMP_WORDS[COMP_CWORD-1]}"
+  INPUT=$@
+#  for MATCH in "${INPUT[@]}"; do
+#    if [[ "$MATCH" == "$WYRD" ]]; then
+#      case $MATCH in
+   case $WYRD in
+        -l|--language)
+          echo "$(__lang_opt_check)" || return 1
+          return 0;
+          ;;
+        --mode)
+          echo "$(__mode_opt_check)" || return 1
+          return 0;
+          ;;
+        -r|--resource)
+          echo "$(__resource_opt_check)" || return 1
+          return 0
+          ;;
+        -t|--translation|--type)
+          if [[ "${COMP_WORDS[1]}" == "set" ]]; then
+            echo "$(__set_types)"
+            return 0;
+          fi
+          ;;
+        -f)
+          if [[ "${COMP_WORDS[1]}" == "set" ]]; then
+            echo "$(__tx_files)" || return 1
+          fi
+          return 0
+          ;;
+        *)
+          echo "$(compgen -W "${INPUT[@]}" -- $cur)"
+          return 0
+          ;;
+      esac
+#    fi
+#  done
+#  echo "$(compgen -W "${INPUT[@]}" -- $cur)"
+ }
+
+__tx_action_words () {
+ action="${COMP_WORDS[1]}"
+ case "$action" in
+  test)
+    CURRENT_OPTIONS="foo bar fee"
+    ;;
+  help|-h) 
+    COMPREPLY=($(compgen -W "$ACTIONS" -- $cur))
+    return 0
+    ;;
+  delete)
+    #COMPREPLY=($(compgen -W "$DELETE_OPTIONS" -- $cur))
+    CURRENT_OPTIONS=$DELETE_OPTIONS
+    ;;
+  init)
+    #COMPREPLY=($(compgen -W "$INIT_OPTIONS" -- $cur))
+    CURRENT_OPTIONS=$INIT_OPTIONS
+  ;;
+  pull)
+    #COMPREPLY=($(compgen -W "$PULL_OPTIONS" -- $cur))
+    CURRENT_OPTIONS=$PULL_OPTIONS
+    ;;
+  push)
+    #COMPREPLY=($(compgen -W "$PUSH_OPTIONS" -- $cur))
+    CURRENT_OPTIONS=$PUSH_OPTIONS
+    ;;
+  set)
+    #COMPREPLY=($(compgen -W "$SET_OPTIONS" -- $cur))
+    for MATCH in ${COMP_WORDS[@]}; do
+      if [[ "$MATCH" == "--auto-local" ]]; then
+        CURRENT_OPTIONS=$SET_AUTOLOCAL_OPTIONS
+      elif [[ "$MATCH" == "--auto-remote" ]]; then
+        CURRENT_OPTIONS=$SET_AUTOREMOTE_OPTIONS
+      else
+        CURRENT_OPTIONS=$SET_OPTIONS
+      fi
+    done
+    ;;
+  esac
+  REMOVE_OPTIONS=$(__trim_args)
+  
+    # this logic needs to be better. Don't suggest short form again if long form has been used, etc.
+    #
+    for RM_OPT in ${REMOVE_OPTIONS[@]};do
+      CURRENT_OPTIONS=${CURRENT_OPTIONS[@]/$RM_OPT/}
     done
 #    for RM_OPT in ${REMOVE_OPTIONS[@]};do
  #     CURRENT_OPTIONS=${CURRENT_OPTIONS[@]/$RM_OPT/}
