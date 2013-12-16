@@ -179,45 +179,40 @@ __add_args () {
 __iterate_args () {
   WYRD="${COMP_WORDS[COMP_CWORD-1]}"
   INPUT=$@
-#  for MATCH in "${INPUT[@]}"; do
-#    if [[ "$MATCH" == "$WYRD" ]]; then
-#      case $MATCH in
-   case $WYRD in
-        -l|--language)
-          echo "$(__lang_opt_check)" || return 1
-          return 0;
-          ;;
-        --mode)
-          echo "$(__mode_opt_check)" || return 1
-          return 0;
-          ;;
-        -r|--resource)
-          echo "$(__resource_opt_check)" || return 1
-          return 0
-          ;;
-        -t|--translation|--type)
-          if [[ "${COMP_WORDS[1]}" == "set" ]]; then
-            echo "$(__set_types)"
-            return 0;
-          fi
-          ;;
-        -f)
-          if [[ "${COMP_WORDS[1]}" == "set" ]]; then
-            echo "$(compgen -f ${COMP_WORDS[${COMP_CWORD}]})" || return 1
-          fi
-          return 0
-          ;;
-        --user)
-          return 0;
-          ;;
-        *)
-          echo "$(compgen -W "${INPUT[@]}" -- $cur)"
-          return 0
-          ;;
-      esac
-#    fi
-#  done
-#  echo "$(compgen -W "${INPUT[@]}" -- $cur)"
+  case $WYRD in
+    -l|--language)
+      echo "$(__lang_opt_check)" || return 1
+      return 0;
+      ;;
+    --mode)
+      echo "$(__mode_opt_check)" || return 1
+      return 0;
+      ;;
+    -r|--resource)
+      echo "$(__resource_opt_check)" || return 1
+      return 0
+      ;;
+    -t|--translation|--type)
+      if [[ "${COMP_WORDS[1]}" == "set" ]]; then
+        echo "$(__set_types)"
+        return 0;
+      fi
+      ;;
+    -f)
+      if [[ "${COMP_WORDS[1]}" == "set" ]]; then
+        echo "$(compgen -f ${COMP_WORDS[${COMP_CWORD}]})" || return 1
+      fi
+      return 0
+      ;;
+    --user)
+      return 0;
+      ;;
+    *)
+      echo $(compgen -W "${CURRENT_OPTIONS[@]}" -- $cur)
+ #     echo "$(compgen -W "${INPUT[@]}" -- $cur)"
+      return 0
+      ;;
+  esac
  }
 
 __tx_action_words () {
@@ -231,19 +226,15 @@ __tx_action_words () {
     return 0
     ;;
   delete)
-    #COMPREPLY=($(compgen -W "$DELETE_OPTIONS" -- $cur))
     CURRENT_OPTIONS=$DELETE_OPTIONS
     ;;
   init)
-    #COMPREPLY=($(compgen -W "$INIT_OPTIONS" -- $cur))
     CURRENT_OPTIONS=$INIT_OPTIONS
   ;;
   pull)
-    #COMPREPLY=($(compgen -W "$PULL_OPTIONS" -- $cur))
     CURRENT_OPTIONS=$PULL_OPTIONS
     ;;
   push)
-    #COMPREPLY=($(compgen -W "$PUSH_OPTIONS" -- $cur))
     CURRENT_OPTIONS=$PUSH_OPTIONS
     ;;
   set)
@@ -252,14 +243,13 @@ __tx_action_words () {
   esac
   REMOVE_OPTIONS=$(__trim_args)
   ADD_OPTIONS=$(__add_args)
-    # this logic needs to be better. Don't suggest short form again if long form has been used, etc.
-    for ADD_OPT in ${ADD_OPTIONS[@]};do
-      CURRENT_OPTIONS+=($ADD_OPT)
-    done
-    for RM_OPT in ${REMOVE_OPTIONS[@]};do
-      CURRENT_OPTIONS=${CURRENT_OPTIONS[@]/$RM_OPT/}
-    done
-    echo "$(__iterate_args $CURRENT_OPTIONS)"
+  for ADD_OPT in ${ADD_OPTIONS[@]};do
+    CURRENT_OPTIONS+=($ADD_OPT)
+  done
+  for RM_OPT in ${REMOVE_OPTIONS[@]};do
+    CURRENT_OPTIONS=${CURRENT_OPTIONS[@]/" ${RM_OPT} "/}
+  done
+  echo "$(__iterate_args $CURRENT_OPTIONS)"
   }
 
 _tx_complete () {
