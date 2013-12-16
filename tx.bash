@@ -13,7 +13,7 @@ __tx_dir () {
     fi
     cd ..
     if [ "$PWD" == "/" ]; then
-      echo -e "\nNo tx config found in parent directories!" 1>&2
+    #  echo -e "\nNo tx config found in parent directories!" 1>&2
       return 1
     fi
   done
@@ -35,7 +35,7 @@ __lang_opt_check () {
   # ONLINE_LANGS is turning project-specific language suggestions OFF by default.
   TX_GLOBAL_CONFIG="${HOME}/.transifexrc"
   ONLINE_LANGS=$(sed -ne 's/online_langs = \(.*\)$/\1/p' $TX_GLOBAL_CONFIG)
-  if [[ -z "$S" || "$ONLINE_LANGS" == "false" || "$ONLINE_LANGS" == "FALSE" ]]; then
+  if [[ -z "$ONLINE_LANGS" || "$ONLINE_LANGS" == "false" || "$ONLINE_LANGS" == "FALSE" ]]; then
     return 1
   elif [[ "$ONLINE_LANGS" == "true" || "$ONLINE_LANGS" == "TRUE" ]]; then
     TXCONFIG=$(__tx_dir) || return 1
@@ -159,7 +159,7 @@ __trim_args () {
 
 __add_args () {
   ADD_OPTIONS=()
-  if [[ "${COMP_WORDS[COMP_CWORD-1]}" == "set" && "${#COMP_WORDS[@]}" == 2 ]]; then
+  if [[ "${COMP_WORDS[COMP_CWORD-1]}" == "set" ]]; then
     ADD_OPTIONS+=("--auto-remote")
   fi
   for USED_OPTIONS in ${COMP_WORDS[@]}; do
@@ -174,6 +174,7 @@ __add_args () {
         ;;
     esac
   done
+  echo ${ADD_OPTIONS[@]}
 }
 
 __iterate_args () {
@@ -204,12 +205,11 @@ __iterate_args () {
       fi
       return 0
       ;;
-    --user)
+    --user|--host|--auto-remote)
       return 0;
       ;;
     *)
-      echo $(compgen -W "${CURRENT_OPTIONS[@]}" -- $cur)
- #     echo "$(compgen -W "${INPUT[@]}" -- $cur)"
+      echo $(compgen -W "$(echo ${CURRENT_OPTIONS[@]})" -- $cur)
       return 0
       ;;
   esac
@@ -218,53 +218,56 @@ __iterate_args () {
 __tx_action_words () {
  action="${COMP_WORDS[1]}"
  case "$action" in
-  test)
-    CURRENT_OPTIONS="foo bar fee"
-    ;;
   help|-h) 
-    COMPREPLY=($(compgen -W "$ACTIONS" -- $cur))
-    return 0
+    CURRENT_OPTIONS=(${ACTIONS[@]})
+    if [[ ${#COMP_WORDS[@]} -gt 3 ]]; then
+      return 1;
+    fi
     ;;
   delete)
-    CURRENT_OPTIONS=$DELETE_OPTIONS
+    CURRENT_OPTIONS=(${DELETE_OPTIONS[@]})
     ;;
   init)
-    CURRENT_OPTIONS=$INIT_OPTIONS
+    CURRENT_OPTIONS=(${INIT_OPTIONS[@]})
   ;;
   pull)
-    CURRENT_OPTIONS=$PULL_OPTIONS
+    CURRENT_OPTIONS=(${PULL_OPTIONS[@]})
     ;;
   push)
-    CURRENT_OPTIONS=$PUSH_OPTIONS
+    CURRENT_OPTIONS=(${PUSH_OPTIONS[@]})
     ;;
   set)
-    CURRENT_OPTIONS=$SET_OPTIONS
+    CURRENT_OPTIONS=(${SET_OPTIONS[@]})
     ;;
   esac
-  REMOVE_OPTIONS=$(__trim_args)
-  ADD_OPTIONS=$(__add_args)
+  REMOVE_OPTIONS=($(__trim_args))
+  ADD_OPTIONS=($(__add_args))
   for ADD_OPT in ${ADD_OPTIONS[@]};do
     CURRENT_OPTIONS+=($ADD_OPT)
   done
-  for RM_OPT in ${REMOVE_OPTIONS[@]};do
-    CURRENT_OPTIONS=${CURRENT_OPTIONS[@]/" ${RM_OPT} "/}
+  for RM_OPT in ${REMOVE_OPTIONS[@]}; do
+    for i in ${!CURRENT_OPTIONS[@]}; do
+      if [[ "${CURRENT_OPTIONS[i]}" == "$RM_OPT" ]]; then
+        unset CURRENT_OPTIONS[i]
+      fi
+    done
   done
-  echo "$(__iterate_args $CURRENT_OPTIONS)"
-  }
+   echo "$(__iterate_args $(echo ${CURRENT_OPTIONS[@]}))"
+}
 
 _tx_complete () {
   COMPREPLY=()
   local cur
-  ACTIONS="delete help init pull push set status"
+  ACTIONS=("delete" help init pull push set status)
   # leaving --skip and --force out of autocomplete, that seems safest.
-  DELETE_OPTIONS="--resource --language"
-  INIT_OPTIONS="--host --user $(_filedir) "
-  PULL_OPTIONS="-a --all -l --language --resource --minimum-perc --disable-overwrite --mode -s --source"
-  PUSH_OPTIONS="-l --language -r --resource -s --source -t --translation"
-  SET_OPTIONS="--auto-local -r --resource -l --language -t --type --minimum-perc --mode"
+  DELETE_OPTIONS=( --resource --language )
+  INIT_OPTIONS=( --host --user $(_filedir) )
+  PULL_OPTIONS=(-a --all -l --language --resource --minimum-perc --disable-overwrite --mode -s --source)
+  PUSH_OPTIONS=(-l --language -r --resource -s --source -t --translation)
+  SET_OPTIONS=(--auto-local -r --resource -l --language -t --type --minimum-perc --mode)
   cur=$(_get_cword)
   if [[ $COMP_CWORD -eq 1 ]] ; then
-    COMPREPLY=( $( compgen -W "$ACTIONS" -- $cur ) )
+    COMPREPLY=( $( compgen -W "$(echo ${ACTIONS[@]})" -- $cur ) )
   else
     COMPREPLY=($(__tx_action_words))
   fi
