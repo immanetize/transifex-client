@@ -1,12 +1,10 @@
-#!/bin/bash -x`
+#!/bin/bash 
 # bash completion for the Transifex command line client, tx
 #
 # Copyright (C) 2013 Pete Travis <me@petetravis.com>
 # Distributed under the GNU General Public License, version 2.0.
 #
-__tx_dir ()
-{
- #most probably broken
+__tx_dir () {
   pushd . &>/dev/null;
   while [ "$PWD" != "/" ]; do
     if [ -d .tx ]; then 
@@ -14,67 +12,57 @@ __tx_dir ()
       return 0
     fi
     cd ..
-  if [ "$PWD" == "/" ]; then
-    echo -e "\nNo tx config found in parent directories!" 1>&2
-    return 1
-  fi
+    if [ "$PWD" == "/" ]; then
+      echo -e "\nNo tx config found in parent directories!" 1>&2
+      return 1
+    fi
   done
   popd &>/dev/null
   exit 0
- }
+}
  
 __tx_resources () {
   TXCONFIG=$(__tx_dir) || return 1
   echo $(sed -ne 's/\[\(.*\..*\)\]/\1/p' $TXCONFIG)
   }
 
-__tx_files ()
-{
-  
-  TXCONFIG=$(__tx_dir) || return 1
-  FILES=$(sed -ne 's/source_file = \(.*\)/\1/p' $TXCONFIG)
-  echo $(compgen -W "$FILES" -- $cur)
-}
-
 __project_slug_fetch () {
   PROJECT_SLUG=$(sed -ne 's/\[\(.*\)\..*\]/\1/p' $TXCONFIG|sort -u)
   echo $PROJECT_SLUG
 }
 
-__org_hub_url () {
-  # TODO: check for organization hub url, use default if not found
-  return 0;
-}
-
 __lang_opt_check () {
-  # PROJECT_LANGS is turning project-specific language suggestions OFF for now.
-  # TODO: add switch in ~/.transifexrc
-  PROJECT_LANGS=
-  TXCONFIG=$(__tx_dir) || return 1
-  PROJECT_SLUG=$(__project_slug_fetch)
-  TXTMPDIR="/run/user/$(id -u)/tx" 
-  if [[ -d "$TXTMPDIR" ]]; then
-    rm -rf $TXTMPDIR
-  fi
-  mkdir $TXTMPDIR
+  # ONLINE_LANGS is turning project-specific language suggestions OFF by default.
   TX_GLOBAL_CONFIG="${HOME}/.transifexrc"
-  TX_USER=$(sed -ne 's/username = \(.*\)$/\1/p' $TX_GLOBAL_CONFIG)
-  TX_PASS=$(sed -ne 's/password = \(.*\)$/\1/p' $TX_GLOBAL_CONFIG)
-  TXCONFIG=$(__tx_dir) || return 1
-  if [[ "$PROJECT_LANGS" == "ONLINE" && -z "$TX_GLOBAL_CONFIG" && -z "$TX_USER" && -z "$TX_PASS" ]]; then
-    LANGFILE="${TXTMPDIR}/tx.${PROJECT_SLUG}.langs"
-    CURLARG="-L --user "${TX_USER}:${TX_PASS}" https://www.transifex.com/api/2/project/${PROJECT_SLUG}/languages/"
-  else
-    LANGFILE="${TXTMPDIR}/tx.languages.all"
-    CURLARG="https://www.transifex.com/api/2/languages/"
-  fi
-  if [[ ! -s "$LANGFILE" ]]; then
-    echo -e "\nChecking supported languages. This only happens once per login session." 1>&2
-    curl -i -X GET $CURLARG | sed -ne 's/"code": "\(.*\)",/\1/p' > $LANGFILE ||\
+  ONLINE_LANGS=$(sed -ne 's/online_langs = \(.*\)$/\1/p' $TX_GLOBAL_CONFIG)
+  if [[ -z "$S" || "$ONLINE_LANGS" == "false" || "$ONLINE_LANGS" == "FALSE" ]]; then
+    return 1
+  elif [[ "$ONLINE_LANGS" == "true" || "$ONLINE_LANGS" == "TRUE" ]]; then
+    TXCONFIG=$(__tx_dir) || return 1
+    PROJECT_SLUG=$(__project_slug_fetch)
+    TXTMPDIR="/run/user/$(id -u)/tx" 
+    if [[ ! -d "$TXTMPDIR" ]]; then
+      mkdir $TXTMPDIR
+    fi
+    TX_USER=$(sed -ne 's/username = \(.*\)$/\1/p' $TX_GLOBAL_CONFIG)
+    TX_PASS=$(sed -ne 's/password = \(.*\)$/\1/p' $TX_GLOBAL_CONFIG)
+    TXCONFIG=$(__tx_dir) || return 1
+    if [[ "$ONLINE_LANGS" == "ONLINE" && -z "$TX_GLOBAL_CONFIG" && -z "$TX_USER" && -z "$TX_PASS" ]]; then
+      LANGFILE="${TXTMPDIR}/tx.${PROJECT_SLUG}.langs"
+      CURLARG="-L --user "${TX_USER}:${TX_PASS}" https://www.transifex.com/api/2/project/${PROJECT_SLUG}/languages/"
+    else
+      LANGFILE="${TXTMPDIR}/tx.languages.all"
+      CURLARG="https://www.transifex.com/api/2/languages/"
+    fi
+    if [[ ! -s "$LANGFILE" ]]; then
+      touch $LANGFILE
+      echo -e "\nChecking supported languages. This only happens once per login session." 1>&2
+      curl -i -X GET $CURLARG | sed -ne 's/"code": "\(.*\)",/\1/p' > $LANGFILE ||\
       { 
         echo -e "\nCannot find supported languages for project, are you online?" 1>&2
         return 1
       }
+    fi
   fi
   echo $(compgen -W "$(cat $LANGFILE)" -- $cur)
 
@@ -119,21 +107,32 @@ __trim_args () {
           ;;
         -s)
           REMOVE_OPTIONS+=("--source")
+          REMOVE_OPTIONS+=("--source-language")
           ;;
         --source)
+          REMOVE_OPTIONS+=("-s")
+          REMOVE_OPTIONS+=("--auto-remote")
+          REMOVE_OPTIONS+=("--auto-local")
+          ;;
+        --source-language)
           REMOVE_OPTIONS+=("-s")
           ;;
         -t)
           REMOVE_OPTIONS+=("--type")
+          REMOVE_OPTIONS+=("--translations")
           ;;
         --type)
           REMOVE_OPTIONS+=("-t")
           ;;
         -l)
           REMOVE_OPTIONS+=("--language")
+          REMOVE_OPTIONS+=("--auto-remote")
+          REMOVE_OPTIONS+=("--auto-local")
           ;;
         --language)
           REMOVE_OPTIONS+=("-l")
+          REMOVE_OPTIONS+=("--auto-remote")
+          REMOVE_OPTIONS+=("--auto-local")
           ;;
         -a)
           REMOVE_OPTIONS+=("--all")
@@ -141,10 +140,40 @@ __trim_args () {
         --all)
           REMOVE_OPTIONS+=("-a")
           ;;
+        --auto-local)
+          REMOVE_OPTIONS+=("--auto-remote")
+          REMOVE_OPTIONS+=("--source")
+          ;;
+        -f)
+          REMOVE_OPTIONS+=("--source-file")
+          ;;
+        --source-file)
+          REMOVE_OPTIONS+=("-f")
+          ;;
+
       esac
     done
     REMOVE_OPTIONS+=(${COMP_WORDS[COMP_CWORD-1]})
   echo ${REMOVE_OPTIONS[@]}
+}
+
+__add_args () {
+  ADD_OPTIONS=()
+  if [[ "${COMP_WORDS[COMP_CWORD-1]}" == "set" && "${#COMP_WORDS[@]}" == 2 ]]; then
+    ADD_OPTIONS+=("--auto-remote")
+  fi
+  for USED_OPTIONS in ${COMP_WORDS[@]}; do
+    case $USED_OPTIONS in
+      --auto-local)
+        ADD_OPTIONS+=("-s")
+        ADD_OPTIONS+=("--source-language")
+        ADD_OPTIONS+=("-f")
+        ADD_OPTIONS+=("--source-file")
+        # leaving out --execute, not sure how to use it.
+        #ADD_OPTIONS+=("--execute")
+        ;;
+    esac
+  done
 }
 
 __iterate_args () {
@@ -174,9 +203,12 @@ __iterate_args () {
           ;;
         -f)
           if [[ "${COMP_WORDS[1]}" == "set" ]]; then
-            echo "$(__tx_files)" || return 1
+            echo "$(compgen -f ${COMP_WORDS[${COMP_CWORD}]})" || return 1
           fi
           return 0
+          ;;
+        --user)
+          return 0;
           ;;
         *)
           echo "$(compgen -W "${INPUT[@]}" -- $cur)"
@@ -215,43 +247,31 @@ __tx_action_words () {
     CURRENT_OPTIONS=$PUSH_OPTIONS
     ;;
   set)
-    #COMPREPLY=($(compgen -W "$SET_OPTIONS" -- $cur))
-    for MATCH in ${COMP_WORDS[@]}; do
-      if [[ "$MATCH" == "--auto-local" ]]; then
-        CURRENT_OPTIONS=$SET_AUTOLOCAL_OPTIONS
-      elif [[ "$MATCH" == "--auto-remote" ]]; then
-        CURRENT_OPTIONS=$SET_AUTOREMOTE_OPTIONS
-      else
-        CURRENT_OPTIONS=$SET_OPTIONS
-      fi
-    done
+    CURRENT_OPTIONS=$SET_OPTIONS
     ;;
   esac
   REMOVE_OPTIONS=$(__trim_args)
-  
+  ADD_OPTIONS=$(__add_args)
     # this logic needs to be better. Don't suggest short form again if long form has been used, etc.
-    #
+    for ADD_OPT in ${ADD_OPTIONS[@]};do
+      CURRENT_OPTIONS+=($ADD_OPT)
+    done
     for RM_OPT in ${REMOVE_OPTIONS[@]};do
       CURRENT_OPTIONS=${CURRENT_OPTIONS[@]/$RM_OPT/}
     done
-#    for RM_OPT in ${REMOVE_OPTIONS[@]};do
- #     CURRENT_OPTIONS=${CURRENT_OPTIONS[@]/$RM_OPT/}
-  #  done
     echo "$(__iterate_args $CURRENT_OPTIONS)"
   }
 
 _tx_complete () {
   COMPREPLY=()
   local cur
-  ACTIONS="test delete help init pull push set status"
+  ACTIONS="delete help init pull push set status"
   # leaving --skip and --force out of autocomplete, that seems safest.
   DELETE_OPTIONS="--resource --language"
-  INIT_OPTIONS="--host --user $(_filedir) *"
-  PULL_OPTIONS="--test -a --all -l --language --resource --minimum-perc --disable-overwrite --mode -s --source"
+  INIT_OPTIONS="--host --user $(_filedir) "
+  PULL_OPTIONS="-a --all -l --language --resource --minimum-perc --disable-overwrite --mode -s --source"
   PUSH_OPTIONS="-l --language -r --resource -s --source -t --translation"
-  SET_OPTIONS="--auto-local --auto-remote -r --resource -l --language -t --type --minimum-perc --mode"
-  SET_AUTOLOCAL_OPTIONS="-t --type -s --source-language -f --source-file --execute --minimum-perc --mode -r --resource"
-  SET_AUTOREMOTE_OPTIONS="-t --type --mode --execute --minimum-perc -r --resource"
+  SET_OPTIONS="--auto-local -r --resource -l --language -t --type --minimum-perc --mode"
   cur=$(_get_cword)
   if [[ $COMP_CWORD -eq 1 ]] ; then
     COMPREPLY=( $( compgen -W "$ACTIONS" -- $cur ) )
@@ -259,5 +279,5 @@ _tx_complete () {
     COMPREPLY=($(__tx_action_words))
   fi
 }
-complete -F _tx_complete tx
+complete -o filenames -F _tx_complete tx
 
